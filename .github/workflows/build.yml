@@ -22,7 +22,7 @@ jobs:
 
       - name: Extract Android source ZIP
         run: |
-          unzip -o KAIZEN-PRO-Android-Source.zip -d .
+          unzip -o KAIZEN-PRO-Android-Source-JVM17-FIX.zip -d .
 
       - name: Build APK
         run: |
