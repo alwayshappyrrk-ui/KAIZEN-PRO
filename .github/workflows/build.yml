@@ -1,4 +1,4 @@
-name: Build KAIZEN PRO Release APK
+name: Build KAIZEN PRO Signed APK
 
 on:
   workflow_dispatch:
@@ -34,9 +34,19 @@ jobs:
         run: |
           gradle assembleRelease
 
-      - name: Upload Release APK
+      - name: Check APK signing status
+        run: |
+          APK="app/build/outputs/apk/release/app-release-unsigned.apk"
+          if [ ! -f "$APK" ]; then
+            echo "Expected unsigned APK was not found."
+            find app/build/outputs/apk -type f -name "*.apk"
+            exit 1
+          fi
+          echo "Unsigned APK found. Signing is still required."
+
+      - name: Upload unsigned APK for diagnosis
         uses: actions/upload-artifact@v4
         with:
-          name: KAIZEN-PRO-RELEASE-APK
+          name: KAIZEN-PRO-UNSIGNED-DIAGNOSTIC
           path: app/build/outputs/apk/release/*.apk
           if-no-files-found: error
