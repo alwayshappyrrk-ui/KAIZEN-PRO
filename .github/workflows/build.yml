@@ -6,53 +6,30 @@ on:
     branches:
       - main
 
-permissions:
-  contents: read
-
 jobs:
   build:
-    name: Build Android APK
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Repository
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up JDK 17
+      - name: Set up Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
-
-      - name: Check Project Files
+      - name: Extract Android source ZIP
         run: |
-          echo "Checking KAIZEN PRO project..."
-          find . -maxdepth 3 -type f | sort
+          unzip -o KAIZEN-PRO-Android-Source.zip -d .
 
-      - name: Check Android Project
+      - name: Build APK
         run: |
-          if [ ! -f "settings.gradle" ] && [ ! -f "settings.gradle.kts" ]; then
-            echo "Android project files are not added yet."
-            echo "This workflow is ready, but the Android source code is still required."
-            exit 1
-          fi
-
-      - name: Build Debug APK
-        run: |
-          if [ -f "./gradlew" ]; then
-            chmod +x ./gradlew
-            ./gradlew assembleDebug
-          else
-            gradle assembleDebug
-          fi
+          gradle assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: KAIZEN-PRO-APK
           path: app/build/outputs/apk/debug/*.apk
-          if-no-files-found: error
-          retention-days: 7
