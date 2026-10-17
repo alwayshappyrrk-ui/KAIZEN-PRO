@@ -1,4 +1,4 @@
-name: Build KAIZEN PRO Signed Release APK
+name: Build KAIZEN PRO Release APK
 
 on:
   workflow_dispatch:
@@ -23,70 +23,68 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Locate and extract Android project
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ZIP_FILE="KAIZEN-PRO-Android-Source-FRESH.zip"
+
+          if [ -f "$ZIP_FILE" ]; then
+            mkdir -p android-source
+            unzip -o "$ZIP_FILE" -d android-source
+          fi
+
+          GRADLE_FILE="$(find . -type f -name settings.gradle -o -name settings.gradle.kts | head -n 1)"
+
+          if [ -z "$GRADLE_FILE" ]; then
+            echo "ERROR: settings.gradle not found."
+            echo "Files available in repository:"
+            find . -maxdepth 4 -type f | head -n 100
+            exit 1
+          fi
+
+          PROJECT_DIR="$(dirname "$GRADLE_FILE")"
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "Android project found at: $PROJECT_DIR"
+
       - name: Set up Gradle 8.7
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.7'
 
       - name: Build release APK
-        run: gradle --no-daemon clean :app:assembleRelease
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          gradle --no-daemon clean assembleRelease
 
-      - name: Sign release APK and verify it
+      - name: Find and verify APK
         shell: bash
         run: |
           set -euo pipefail
 
-          UNSIGNED="app/build/outputs/apk/release/app-release-unsigned.apk"
-          test -s "$UNSIGNED"
+          APK="$(find "$PROJECT_DIR" -type f \
+            -path '*/build/outputs/apk/release/*.apk' \
+            ! -name '*unsigned*' | head -n 1)"
 
-          STORE_PASS="$(openssl rand -hex 16)"
-          KEY_PASS="$STORE_PASS"
-          KEYSTORE="$RUNNER_TEMP/kaizen-pro-release.jks"
-          SIGNED="app/build/outputs/apk/release/KAIZEN-PRO-release-signed.apk"
+          if [ -z "$APK" ]; then
+            echo "ERROR: Release APK not found."
+            find "$PROJECT_DIR" -type f -name '*.apk'
+            exit 1
+          fi
 
-          keytool -genkeypair \
-            -keystore "$KEYSTORE" \
-            -storepass "$STORE_PASS" \
-            -keypass "$KEY_PASS" \
-            -alias kaizenpro \
-            -keyalg RSA \
-            -keysize 2048 \
-            -validity 10000 \
-            -dname "CN=KAIZEN PRO, O=Personal, C=IN"
+          mkdir -p release-output
+          cp "$APK" release-output/KAIZEN-PRO-release.apk
 
-          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
-          test -n "$APKSIGNER"
+          echo "APK created:"
+          ls -lh release-output/KAIZEN-PRO-release.apk
 
-          "$APKSIGNER" sign \
-            --ks "$KEYSTORE" \
-            --ks-key-alias kaizenpro \
-            --ks-pass "pass:$STORE_PASS" \
-            --key-pass "pass:$KEY_PASS" \
-            --out "$SIGNED" \
-            "$UNSIGNED"
-
-          "$APKSIGNER" verify --verbose --print-certs "$SIGNED"
-
-          echo "Signed APK:"
-          ls -lh "$SIGNED"
-
-          base64 -w 0 "$KEYSTORE" > "$RUNNER_TEMP/kaizen-pro-keystore.base64"
-          printf '%s\n' "$STORE_PASS" > "$RUNNER_TEMP/kaizen-pro-keystore-password.txt"
-
-      - name: Upload signed APK
+      - name: Upload release APK
         uses: actions/upload-artifact@v4
         with:
-          name: KAIZEN-PRO-SIGNED-RELEASE-APK
-          path: app/build/outputs/apk/release/KAIZEN-PRO-release-signed.apk
+          name: KAIZEN-PRO-RELEASE-APK
+          path: release-output/KAIZEN-PRO-release.apk
           if-no-files-found: error
           retention-days: 7
-
-      - name: Upload signing key backup
-        uses: actions/upload-artifact@v4
-        with:
-          name: KAIZEN-PRO-SIGNING-KEY-BACKUP-PRIVATE
-          path: |
-            ${{ runner.temp }}/kaizen-pro-keystore.base64
-            ${{ runner.temp }}/kaizen-pro-keystore-password.txt
-          if-no-files-found: error
-          retention-days: 1
