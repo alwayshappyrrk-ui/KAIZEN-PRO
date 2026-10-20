@@ -2,9 +2,6 @@ name: Build KAIZEN PRO Release APK
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
 
 permissions:
   contents: read
@@ -12,7 +9,6 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -27,22 +23,19 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           ZIP_FILE="KAIZEN-PRO-V2-ALARM-FIX-SOURCE.zip"
-          if [ -f "$ZIP_FILE" ]; then
-            mkdir -p android-source
-            unzip -o "$ZIP_FILE" -d android-source
-          fi
-
-          GRADLE_FILE="$(find . -type f -name settings.gradle -o -name settings.gradle.kts | head -n 1)"
-
-          if [ -z "$GRADLE_FILE" ]; then
-            echo "ERROR: settings.gradle not found."
-            echo "Files available in repository:"
-            find . -maxdepth 4 -type f | head -n 100
+          if [ ! -s "$ZIP_FILE" ]; then
+            echo "::error::Required source ZIP not found: $ZIP_FILE"
+            echo "Upload the intended source ZIP to the repository root with this exact name."
             exit 1
           fi
-
+          mkdir -p android-source
+          unzip -oq "$ZIP_FILE" -d android-source
+          GRADLE_FILE="$(find android-source -type f \( -name settings.gradle -o -name settings.gradle.kts \) -print -quit)"
+          if [ -z "$GRADLE_FILE" ]; then
+            echo "::error::settings.gradle(.kts) not found inside source ZIP."
+            exit 1
+          fi
           PROJECT_DIR="$(dirname "$GRADLE_FILE")"
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
           echo "Android project found at: $PROJECT_DIR"
@@ -59,44 +52,46 @@ jobs:
           cd "$PROJECT_DIR"
           gradle --no-daemon clean assembleRelease
 
-      - name: Sign and verify release APK
+      - name: Check persistent signing secrets
         shell: bash
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           set -euo pipefail
+          if [ -z "${KEYSTORE_BASE64:-}" ] || [ -z "${KEYSTORE_PASSWORD:-}" ] || [ -z "${KEY_PASSWORD:-}" ]; then
+            echo "::error::Set repository Actions secrets KEYSTORE_BASE64, KEYSTORE_PASSWORD, and KEY_PASSWORD before running this workflow."
+            exit 1
+          fi
 
-          UNSIGNED="android-source/app/build/outputs/apk/release/app-release-unsigned.apk"
+      - name: Sign and verify release APK with persistent key
+        shell: bash
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          UNSIGNED="$PROJECT_DIR/app/build/outputs/apk/release/app-release-unsigned.apk"
           SIGNED="release-output/KAIZEN-PRO-release.apk"
-
           test -s "$UNSIGNED"
-
           mkdir -p release-output
-
-          STORE_PASS="$(openssl rand -hex 16)"
           KEYSTORE="$RUNNER_TEMP/kaizen-release.jks"
-
-          keytool -genkeypair \
-            -keystore "$KEYSTORE" \
-            -storepass "$STORE_PASS" \
-            -keypass "$STORE_PASS" \
-            -alias kaizenpro \
-            -keyalg RSA \
-            -keysize 2048 \
-            -validity 10000 \
-            -dname "CN=KAIZEN PRO, O=Personal, C=IN"
-
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE"
+          test -s "$KEYSTORE"
           APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
-
+          test -x "$APKSIGNER"
           "$APKSIGNER" sign \
             --ks "$KEYSTORE" \
             --ks-key-alias kaizenpro \
-            --ks-pass "pass:$STORE_PASS" \
-            --key-pass "pass:$STORE_PASS" \
+            --ks-pass env:KEYSTORE_PASSWORD \
+            --key-pass env:KEY_PASSWORD \
             --out "$SIGNED" \
             "$UNSIGNED"
-
           "$APKSIGNER" verify --verbose "$SIGNED"
-
           ls -lh "$SIGNED"
+
       - name: Upload release APK
         uses: actions/upload-artifact@v4
         with:
