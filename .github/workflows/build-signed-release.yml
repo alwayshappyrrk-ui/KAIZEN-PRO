@@ -23,7 +23,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ZIP_FILE="KAIZEN-PRO-V2-ALARM-DASHBOARD-FIX-STARTDATE-NOTIFICATIONS-SOURCE.zip"
+          ZIP_FILE="KAIZEN-PRO-TODAY-PLAN-LIFE-LEARNINGS-SOURCE.zip"
           if [ ! -s "$ZIP_FILE" ]; then
             echo "::error::Required source ZIP not found: $ZIP_FILE"
             echo "Upload the intended source ZIP to the repository root with this exact name."
